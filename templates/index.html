@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>土木工地日常行政與材料進出貨管理系統</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: "Noto Sans TC", "Microsoft JhengHei", sans-serif; }
+    .tab-active { border-bottom: 3px solid #0284c7; color: #0284c7; font-weight: 700; }
+    @keyframes pulseRed {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.5); }
+      50% { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); }
+    }
+    .red-alert-dot { animation: pulseRed 1.8s infinite; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen">
+
+  <!-- 頂部導覽列 -->
+  <header class="bg-slate-900 text-white shadow-md">
+    <div class="max-w-7xl mx-auto px-4 py-4 flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-lg bg-amber-500 text-slate-900 font-black flex items-center justify-center text-lg">工</div>
+        <div>
+          <h1 class="text-xl font-bold tracking-wide">土木工地日常行政與材料進出貨管理系統</h1>
+          <p class="text-xs text-slate-400">SQLite 關聯式資料庫驅動｜即時庫存預警・廠商對帳・行政機具管理</p>
+        </div>
+      </div>
+      <div id="alert-summary-badge" class="hidden bg-red-600 text-white text-sm font-bold px-3 py-1.5 rounded-full flex items-center gap-2">
+        <span class="w-2.5 h-2.5 rounded-full bg-white red-alert-dot"></span>
+        <span id="alert-summary-text"></span>
+      </div>
+    </div>
+  </header>
+
+  <!-- 分頁導覽 -->
+  <nav class="bg-white border-b border-slate-200 sticky top-0 z-20">
+    <div class="max-w-7xl mx-auto px-4 flex gap-6 overflow-x-auto text-sm">
+      <button onclick="switchTab('materials')" id="tab-materials" class="py-3.5 px-1 tab-active whitespace-nowrap">1. 材料進出貨與庫存預警</button>
+      <button onclick="switchTab('vendors')" id="tab-vendors" class="py-3.5 px-1 text-slate-500 hover:text-slate-800 whitespace-nowrap">2. 協力廠商名錄聯絡網</button>
+      <button onclick="switchTab('admin')" id="tab-admin" class="py-3.5 px-1 text-slate-500 hover:text-slate-800 whitespace-nowrap">3. 零用金與機具租借登記</button>
+    </div>
+  </nav>
+
+  <main class="max-w-7xl mx-auto px-4 py-6 space-y-6">
+
+    <!-- ==================== 分頁 1：材料進出貨與庫存預警 ==================== -->
+    <section id="section-materials" class="space-y-6">
+      <!-- 庫存狀態儀表板 -->
+      <div>
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="text-lg font-bold text-slate-800">即時材料庫存監控看板</h2>
+          <span class="text-xs text-slate-500">庫存低於安全存量時自動亮紅燈提醒叫料</span>
+        </div>
+        <div id="inventory-cards" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4"></div>
+      </div>
+
+      <!-- 材料進出貨登記表單 -->
+      <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+        <h3 id="mat-form-title" class="font-bold text-slate-800 mb-4">新增材料進出貨紀錄</h3>
+        <form id="material-form" class="grid grid-cols-1 md:grid-cols-4 gap-3 text-sm">
+          <input type="hidden" id="mat-id" />
+          <div>
+            <label class="block text-xs text-slate-500 mb-1">日期 *</label>
+            <input type="date" id="mat-date" required class="w-full border rounded-lg px-3 py-2" />
+          </div>
+          <div>
+            <label class="block text-xs text-slate-500 mb-1">材料名稱 *</label>
+            <input type="text" id="mat-name" placeholder="例：卜特蘭水泥" required class="w-full border rounded-lg px-3 py-2" />
+          </div>
+          <div>
+            <label class="block text-xs text-slate-500 mb-1">規格</label>
+            <input type="text" id="mat-spec" placeholder="例：Type I 50kg/包" class="w-full border rounded-lg px-3 py-2" />
+          </div>
+          <div>
+            <label class="block text-xs text-slate-500 mb-1">異動類型 *</label>
+            <select id="mat-type" class="w-full border rounded-lg px-3 py-2">
+              <option value="進貨">進貨 (+)</option>
+              <option value="領料">領料 (-)</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs text-slate-500 mb-1">數量 *</label>
+            <input type="number" step="0.01" id="mat-qty" required class="w-full border rounded-lg px-3 py-2" />
+          </div>
+          <div>
+            <label class="block text-xs text-slate-500 mb-1">單位 *</label>
+            <input type="text" id="mat-unit" placeholder="包 / 噸 / 片 / 立方米" required class="w-full border rounded-lg px-3 py-2" />
+          </div>
+          <div>
+            <label class="block text-xs text-slate-500 mb-1">進貨單價 (NT$)</label>
+            <input type="number" step="1" id="mat-price" value="0" class="w-full border rounded-lg px-3 py-2" />
+          </div>
+          <div>
+            <label class="block text-xs text-slate-500 mb-1">安全存量警示線 *</label>
+            <input type="number" step="0.01" id="mat-safety" value="50" required class="w-full border rounded-lg px-3 py-2" />
+          </div>
+          <div>
+            <label class="block text-xs text-slate-500 mb-1">供貨廠商 (關聯廠商表)</label>
+            <select id="mat-vendor" class="w-full border rounded-lg px-3 py-2"></select>
+          </div>
+          <div>
+            <label class="block text-xs text-slate-500 mb-1">請款對帳狀態</label>
+            <select id="mat-payment" class="w-full border rounded-lg px-3 py-2">
+              <option value="未請款">未請款</option>
+              <option value="對帳中">對帳中</option>
+              <option value="已請款">已請款</option>
+              <option value="不適用">不適用 (領料)</option>
+            </select>
+          </div>
+          <div class="md:col-span-2">
+            <label class="block text-xs text-slate-500 mb-1">備註</label>
+            <input type="text" id="mat-notes" placeholder="施工區域或單據編號" class="w-full border rounded-lg px-3 py-2" />
+          </div>
+          <div class="md:col-span-4 flex gap-2 justify-end pt-1">
+            <button type="button" onclick="resetMaterialForm()" class="px-4 py-2 rounded-lg border text-slate-600 hover:bg-slate-100">清除 / 取消</button>
+            <button type="submit" class="px-5 py-2 rounded-lg bg-sky-600 text-white font-semibold hover:bg-sky-700">儲存材料紀錄</button>
+          </div>
+        </form>
+      </div>
+
+      <!-- 材料紀錄明細表 -->
+      <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+        <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <div>
+            <h3 class="font-bold text-slate-800">材料進出貨單據明細</h3>
+            <p class="text-xs text-slate-500">點擊「廠商關聯詳情」即可自動查詢供貨廠商、單價、總金額與請款對帳狀態</p>
+          </div>
+          <input type="text" id="mat-search" oninput="loadMaterials()" placeholder="搜尋材料、廠商或備註..." class="border rounded-lg px-3 py-1.5 text-sm w-64" />
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm text-left border-collapse">
+            <thead class="bg-slate-100 text-slate-600 text-xs uppercase">
+              <tr>
+                <th class="p-3">日期</th>
+                <th class="p-3">材料 / 規格</th>
+                <th class="p-3">類型</th>
+                <th class="p-3">數量</th>
+                <th class="p-3">單價 / 小計</th>
+                <th class="p-3">供貨廠商</th>
+                <th class="p-3">請款狀態</th>
+                <th class="p-3 text-right">操作</th>
+              </tr>
+            </thead>
+            <tbody id="materials-tbody" class="divide-y divide-slate-100"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== 分頁 2：協力廠商名錄聯絡網 ==================== -->
+    <section id="section-vendors" class="hidden space-y-6">
+      <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+        <h3 id="ven-form-title" class="font-bold text-slate-800 mb-4">新增協力廠商資料</h3>
+        <form id="vendor-form" class="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+          <input type="hidden" id="ven-id" />
+          <div>
+            <label class="block text-xs text-slate-500 mb-1">廠商名稱 *</label>
+            <input type="text" id="ven-name" required class="w-full border rounded-lg px-3 py-2" />
+          </div>
+          <div>
+            <label class="block text-xs text-slate-500 mb-1">工種分類 *</label>
+            <select id="ven-category" class="w-full border rounded-lg px-3 py-2">
+              <option value="預拌/泥作">預拌/泥作</option>
+              <option value="鋼構/鋼筋">鋼構/鋼筋</option>
+              <option value="砂石/骨材">砂石/骨材</option>
+              <option value="模板工程">模板工程</option>
+              <option value="水電工程">水電工程</option>
+              <option value="機具/其他">機具/其他</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs text-slate-500 mb-1">聯絡人 *</label>
+            <input type="text" id="ven-contact" required class="w-full border rounded-lg px-3 py-2" />
+          </div>
+          <div>
+            <label class="block text-xs text-slate-500 mb-1">聯絡電話 *</label>
+            <input type="text" id="ven-phone" required class="w-full border rounded-lg px-3 py-2" />
+          </div>
+          <div>
+            <label class="block text-xs text-slate-500 mb-1">統一編號 *</label>
+            <input type="text" id="ven-tax" required class="w-full border rounded-lg px-3 py-2" />
+          </div>
+          <div>
+            <label class="block text-xs text-slate-500 mb-1">配合評價 (1-5星)</label>
+            <select id="ven-rating" class="w-full border rounded-lg px-3 py-2">
+              <option value="5">★★★★★ (5星 - 優良)</option>
+              <option value="4">★★★★☆ (4星 - 良好)</option>
+              <option value="3">★★★☆☆ (3星 - 普通)</option>
+              <option value="2">★★☆☆☆ (2星 - 待改善)</option>
+              <option value="1">★☆☆☆☆ (1星 - 不建議)</option>
+            </select>
+          </div>
+          <div class="md:col-span-3">
+            <label class="block text-xs text-slate-500 mb-1">備註</label>
+            <input type="text" id="ven-notes" class="w-full border rounded-lg px-3 py-2" />
+          </div>
+          <div class="md:col-span-3 flex gap-2 justify-end">
+            <button type="button" onclick="resetVendorForm()" class="px-4 py-2 rounded-lg border text-slate-600 hover:bg-slate-100">清除 / 取消</button>
+            <button type="submit" class="px-5 py-2 rounded-lg bg-sky-600 text-white font-semibold hover:bg-sky-700">儲存廠商資料</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+        <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <h3 class="font-bold text-slate-800">協力廠商資料庫</h3>
+          <input type="text" id="ven-search" oninput="loadVendors()" placeholder="搜尋廠商名稱、工種或統編..." class="border rounded-lg px-3 py-1.5 text-sm w-64" />
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm text-left border-collapse">
+            <thead class="bg-slate-100 text-slate-600 text-xs uppercase">
+              <tr>
+                <th class="p-3">廠商名稱</th>
+                <th class="p-3">工種</th>
+                <th class="p-3">聯絡人 / 電話</th>
+                <th class="p-3">統編</th>
+                <th class="p-3">配合評價</th>
+                <th class="p-3">備註</th>
+                <th class="p-3 text-right">操作</th>
+              </tr>
+            </thead>
+            <tbody id="vendors-tbody" class="divide-y divide-slate-100"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== 分頁 3：日常行政零用金與機具租借 ==================== -->
+    <section id="section-admin" class="hidden grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <!-- 零用金區塊 -->
+      <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-4">
+        <div class="flex items-center justify-between">
+          <h3 class="font-bold text-slate-800">工地日常零用金支出</h3>
+          <span id="petty-total" class="text-sm font-bold text-amber-600">累計：NT$ 0</span>
+        </div>
+        <form id="petty-form" class="grid grid-cols-2 gap-2 text-sm">
+          <input type="date" id="petty-date" required class="border rounded-lg px-3 py-2" />
+          <select id="petty-cat" class="border rounded-lg px-3 py-2">
+            <option value="餐費/便當">餐費/便當</option>
+            <option value="五金耗材">五金耗材</option>
+            <option value="飲料/飲水">飲料/飲水</option>
+            <option value="交通/油資">交通/油資</option>
+            <option value="其他雜支">其他雜支</option>
+          </select>
+          <input type="text" id="petty-item" placeholder="品項說明 *" required class="border rounded-lg px-3 py-2 col-span-2" />
+          <input type="number" id="petty-amount" placeholder="金額 (NT$) *" required class="border rounded-lg px-3 py-2" />
+          <input type="text" id="petty-handler" placeholder="經辦人 *" required class="border rounded-lg px-3 py-2" />
+          <input type="text" id="petty-receipt" placeholder="發票/收據編號" class="border rounded-lg px-3 py-2" />
+          <button type="submit" class="bg-sky-600 text-white font-semibold rounded-lg px-4 py-2 hover:bg-sky-700">新增零用金</button>
+        </form>
+        <div class="overflow-x-auto">
+          <table class="w-full text-xs text-left border-collapse">
+            <thead class="bg-slate-100 text-slate-600">
+              <tr>
+                <th class="p-2">日期</th>
+                <th class="p-2">分類 / 品項</th>
+                <th class="p-2">金額</th>
+                <th class="p-2">經辦人</th>
+                <th class="p-2 text-right">刪除</th>
+              </tr>
+            </thead>
+            <tbody id="petty-tbody" class="divide-y divide-slate-100"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 機具租借區塊 -->
+      <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-4">
+        <h3 class="font-bold text-slate-800">小型機具借還登記</h3>
+        <form id="equip-form" class="grid grid-cols-2 gap-2 text-sm">
+          <input type="text" id="eq-name" placeholder="機具名稱 (例：夯實機) *" required class="border rounded-lg px-3 py-2" />
+          <input type="text" id="eq-serial" placeholder="機具編號" class="border rounded-lg px-3 py-2" />
+          <input type="text" id="eq-borrower" placeholder="借用人 / 工班 *" required class="border rounded-lg px-3 py-2" />
+          <input type="date" id="eq-date" required class="border rounded-lg px-3 py-2" />
+          <input type="date" id="eq-expected" title="預計歸還日" class="border rounded-lg px-3 py-2" />
+          <button type="submit" class="bg-sky-600 text-white font-semibold rounded-lg px-4 py-2 hover:bg-sky-700">登記借出</button>
+        </form>
+        <div class="overflow-x-auto">
+          <table class="w-full text-xs text-left border-collapse">
+            <thead class="bg-slate-100 text-slate-600">
+              <tr>
+                <th class="p-2">機具 / 編號</th>
+                <th class="p-2">借用人</th>
+                <th class="p-2">借出日</th>
+                <th class="p-2">狀態</th>
+                <th class="p-2 text-right">操作</th>
+              </tr>
+            </thead>
+            <tbody id="equip-tbody" class="divide-y divide-slate-100"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- 進貨單據與廠商關聯查詢彈窗 (Modal) -->
+  <div id="relation-modal" class="hidden fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl space-y-4">
+      <div class="flex items-center justify-between border-b pb-3">
+        <h3 class="text-lg font-bold text-slate-800">進貨單據與廠商關聯查詢</h3>
+        <button onclick="closeModal()" class="text-slate-400 hover:text-slate-700 text-xl font-bold">&times;</button>
+      </div>
+      <div id="modal-content" class="space-y-3 text-sm"></div>
+      <div class="flex justify-end pt-2">
+        <button onclick="closeModal()" class="px-4 py-2 rounded-lg bg-slate-800 text-white text-sm hover:bg-slate-700">關閉視窗</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const today = new Date().toISOString().split("T")[0];
+    document.getElementById("mat-date").value = today;
+    document.getElementById("petty-date").value = today;
+    document.getElementById("eq-date").value = today;
+
+    let cachedVendors = [];
+    let cachedMaterials = [];
+
+    function switchTab(tab) {
+      ["materials", "vendors", "admin"].forEach(t => {
+        document.getElementById(`section-${t}`).classList.toggle("hidden", t !== tab);
+        const btn = document.getElementById(`tab-${t}`);
+        btn.classList.toggle("tab-active", t === tab);
+        btn.classList.toggle("text-slate-500", t !== tab);
+      });
+    }
+
+    async function loadInventory() {
+      const res = await fetch("/api/inventory");
+      const data = await res.json();
+      const container = document.getElementById("inventory-cards");
+      const lowItems = data.filter(i => i.is_low);
+
+      const badge = document.getElementById("alert-summary-badge");
+      if (lowItems.length > 0) {
+        badge.classList.remove("hidden");
+        document.getElementById("alert-summary-text").textContent = `${lowItems.length} 項材料庫存不足！請立即叫料`;
+      } else {
+        badge.classList.add("hidden");
+      }
+
+      container.innerHTML = data.map(item => `
+        <div class="rounded-xl p-4 border shadow-sm transition ${item.is_low ? 'bg-red-50 border-red-300' : 'bg-white border-slate-200'}">
+          <div class="flex items-start justify-between">
+            <div>
+              <h4 class="font-bold text-slate-800">${item.material_name}</h4>
+              <p class="text-xs text-slate-500">${item.spec || '-'}</p>
+            </div>
+            ${item.is_low
+              ? `<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-red-600 text-white"><span class="w-2 h-2 rounded-full bg-white red-alert-dot"></span>庫存不足</span>`
+              : `<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700">存量正常</span>`
+            }
+          </div>
+          <div class="mt-3 flex items-baseline gap-1">
+            <span class="text-2xl font-black ${item.is_low ? 'text-red-600' : 'text-slate-900'}">${item.current_stock}</span>
+            <span class="text-xs text-slate-500">${item.unit}</span>
+          </div>
+          <div class="mt-2 pt-2 border-t border-slate-200/70 flex justify-between text-xs text-slate-500">
+            <span>安全線：${item.safety_stock} ${item.unit}</span>
+            <span>進 ${item.total_in} / 領 ${item.total_out}</span>
+          </div>
+        </div>
+      `).join("");
+    }
+
+    async function loadVendors() {
+      const q = document.getElementById("ven-search")?.value || "";
+      const res = await fetch(`/api/vendors?q=${encodeURIComponent(q)}`);
+      cachedVendors = await res.json();
+
+      // 更新材料表單的廠商下拉選單
+      const select = document.getElementById("mat-vendor");
+      const currentVal = select.value;
+      select.innerHTML = `<option value="">-- 無 / 領料不適用 --</option>` +
+        cachedVendors.map(v => `<option value="${v.id}">${v.name} (${v.category})</option>`).join("");
+      select.value = currentVal;
+
+      const tbody = document.getElementById("vendors-tbody");
+      tbody.innerHTML = cachedVendors.map(v => `
+        <tr class="hover:bg-slate-50">
+          <td class="p-3 font-semibold text-slate-800">${v.name}</td>
+          <td class="p-3"><span class="px-2 py-0.5 rounded bg-slate-100 text-slate-700 text-xs">${v.category}</span></td>
+          <td class="p-3">${v.contact_person}<br><span class="text-xs text-slate-500">${v.phone}</span></td>
+          <td class="p-3 font-mono text-xs">${v.tax_id}</td>
+          <td class="p-3 text-amber-500">${"★".repeat(v.rating)}${"☆".repeat(5 - v.rating)}</td>
+          <td class="p-3 text-xs text-slate-500">${v.notes || "-"}</td>
+          <td class="p-3 text-right space-x-2 whitespace-nowrap">
+            <button onclick="editVendor(${v.id})" class="text-sky-600 hover:underline text-xs font-semibold">編輯</button>
+            <button onclick="deleteVendor(${v.id})" class="text-red-600 hover:underline text-xs font-semibold">刪除</button>
+          </td>
+        </tr>
+      `).join("");
+    }
+
+    async function loadMaterials() {
+      const q = document.getElementById("mat-search")?.value || "";
+      const res = await fetch(`/api/materials?q=${encodeURIComponent(q)}`);
+      cachedMaterials = await res.json();
+
+      const tbody = document.getElementById("materials-tbody");
+      tbody.innerHTML = cachedMaterials.map(m => {
+        const total = (m.quantity * m.unit_price).toLocaleString();
+        const typeBadge = m.log_type === "進貨"
+          ? `<span class="px-2 py-0.5 rounded bg-sky-100 text-sky-700 text-xs font-bold">進貨</span>`
+          : `<span class="px-2 py-0.5 rounded bg-amber-100 text-amber-700 text-xs font-bold">領料</span>`;
+        const payColor = m.payment_status === "已請款" ? "bg-emerald-100 text-emerald-700"
+          : m.payment_status === "對帳中" ? "bg-amber-100 text-amber-700"
+          : m.payment_status === "未請款" ? "bg-rose-100 text-rose-700" : "bg-slate-100 text-slate-500";
+        return `
+          <tr class="hover:bg-slate-50">
+            <td class="p-3 whitespace-nowrap text-xs font-mono">${m.log_date}</td>
+            <td class="p-3 font-semibold">${m.material_name}<div class="text-xs text-slate-400 font-normal">${m.spec || ""}</div></td>
+            <td class="p-3">${typeBadge}</td>
+            <td class="p-3 font-bold">${m.quantity} ${m.unit}</td>
+            <td class="p-3 text-xs">${m.unit_price > 0 ? `$${m.unit_price.toLocaleString()} / <b>$${total}</b>` : "-"}</td>
+            <td class="p-3 text-xs">${m.vendor_name || "<span class='text-slate-400'>-</span>"}</td>
+            <td class="p-3"><span class="px-2 py-0.5 rounded text-xs font-semibold ${payColor}">${m.payment_status}</span></td>
+            <td class="p-3 text-right space-x-2 whitespace-nowrap">
+              <button onclick="showRelation(${m.id})" class="px-2 py-1 rounded bg-slate-800 text-white text-xs hover:bg-slate-700">廠商關聯詳情</button>
+              <button onclick="editMaterial(${m.id})" class="text-sky-600 hover:underline text-xs font-semibold">編輯</button>
+              <button onclick="deleteMaterial(${m.id})" class="text-red-600 hover:underline text-xs font-semibold">刪除</button>
+            </td>
+          </tr>
+        `;
+      }).join("");
+    }
+
+    function showRelation(id) {
+      const m = cachedMaterials.find(x => x.id === id);
+      if (!m) return;
+      const total = (m.quantity * m.unit_price).toLocaleString();
+      const html = `
+        <div class="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-1">
+          <div class="text-xs text-slate-500">單據編號 #${m.id} ｜ 日期：${m.log_date}</div>
+          <div class="text-base font-bold text-slate-900">${m.material_name} (${m.spec || "一般規格"})</div>
+          <div>異動：<b>${m.log_type} ${m.quantity} ${m.unit}</b>｜單價：<b>NT$ ${m.unit_price.toLocaleString()}</b>｜總額：<b>NT$ ${total}</b></div>
+          <div>請款對帳狀態：<span class="font-bold text-sky-700">${m.payment_status}</span></div>
+          <div class="text-xs text-slate-500">備註：${m.notes || "無"}</div>
+        </div>
+        <div class="bg-sky-50 p-3.5 rounded-xl border border-sky-200 space-y-1">
+          <div class="text-xs font-bold text-sky-700 uppercase">關聯供貨廠商資訊 (JOIN vendors)</div>
+          ${m.vendor_name ? `
+            <div class="text-base font-bold text-slate-900">${m.vendor_name} <span class="text-xs font-normal bg-white px-2 py-0.5 rounded border">${m.vendor_category}</span></div>
+            <div>聯絡人：${m.vendor_contact} ｜ 電話：<a href="tel:${m.vendor_phone}" class="text-sky-700 underline">${m.vendor_phone}</a></div>
+            <div>統一編號：${m.vendor_tax_id} ｜ 配合評價：${"★".repeat(m.vendor_rating || 5)}</div>
+          ` : `<div class="text-slate-500">此筆紀錄為工地內部領料或未指定供貨廠商。</div>`}
+        </div>
+      `;
+      document.getElementById("modal-content").innerHTML = html;
+      document.getElementById("relation-modal").classList.remove("hidden");
+    }
+
+    function closeModal() {
+      document.getElementById("relation-modal").classList.add("hidden");
+    }
+
+    // 材料表單提交 (新增/修改)
+    document.getElementById("material-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const id = document.getElementById("mat-id").value;
+      const payload = {
+        log_date: document.getElementById("mat-date").value,
+        material_name: document.getElementById("mat-name").value,
+        spec: document.getElementById("mat-spec").value,
+        unit: document.getElementById("mat-unit").value,
+        log_type: document.getElementById("mat-type").value,
+        quantity: document.getElementById("mat-qty").value,
+        unit_price: document.getElementById("mat-price").value,
+        safety_stock: document.getElementById("mat-safety").value,
+        vendor_id: document.getElementById("mat-vendor").value || null,
+        payment_status: document.getElementById("mat-payment").value,
+        notes: document.getElementById("mat-notes").value
+      };
+      await fetch(id ? `/api/materials/${id}` : "/api/materials", {
+        method: id ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      resetMaterialForm();
+      await Promise.all([loadInventory(), loadMaterials()]);
+    });
+
+    function editMaterial(id) {
+      const m = cachedMaterials.find(x => x.id === id);
+      if (!m) return;
+      document.getElementById("mat-form-title").textContent = `編輯材料紀錄 #${id}`;
+      document.getElementById("mat-id").value = m.id;
+      document.getElementById("mat-date").value = m.log_date;
+      document.getElementById("mat-name").value = m.material_name;
+      document.getElementById("mat-spec").value = m.spec || "";
+      document.getElementById("mat-unit").value = m.unit;
+      document.getElementById("mat-type").value = m.log_type;
+      document.getElementById("mat-qty").value = m.quantity;
+      document.getElementById("mat-price").value = m.unit_price;
+      document.getElementById("mat-safety").value = m.safety_stock;
+      document.getElementById("mat-vendor").value = m.vendor_id || "";
+      document.getElementById("mat-payment").value = m.payment_status;
+      document.getElementById("mat-notes").value = m.notes || "";
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+
+    function resetMaterialForm() {
+      document.getElementById("material-form").reset();
+      document.getElementById("mat-id").value = "";
+      document.getElementById("mat-date").value = today;
+      document.getElementById("mat-form-title").textContent = "新增材料進出貨紀錄";
+    }
+
+    async function deleteMaterial(id) {
+      if (!confirm("確定刪除此筆材料紀錄？")) return;
+      await fetch(`/api/materials/${id}`, { method: "DELETE" });
+      await Promise.all([loadInventory(), loadMaterials()]);
+    }
+
+    // 廠商表單提交
+    document.getElementById("vendor-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const id = document.getElementById("ven-id").value;
+      const payload = {
+        name: document.getElementById("ven-name").value,
+        category: document.getElementById("ven-category").value,
+        contact_person: document.getElementById("ven-contact").value,
+        phone: document.getElementById("ven-phone").value,
+        tax_id: document.getElementById("ven-tax").value,
+        rating: document.getElementById("ven-rating").value,
+        notes: document.getElementById("ven-notes").value
+      };
+      await fetch(id ? `/api/vendors/${id}` : "/api/vendors", {
+        method: id ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      resetVendorForm();
+      await Promise.all([loadVendors(), loadMaterials()]);
+    });
+
+    function editVendor(id) {
+      const v = cachedVendors.find(x => x.id === id);
+      if (!v) return;
+      document.getElementById("ven-form-title").textContent = `編輯廠商 #${id}`;
+      document.getElementById("ven-id").value = v.id;
+      document.getElementById("ven-name").value = v.name;
+      document.getElementById("ven-category").value = v.category;
+      document.getElementById("ven-contact").value = v.contact_person;
+      document.getElementById("ven-phone").value = v.phone;
+      document.getElementById("ven-tax").value = v.tax_id;
+      document.getElementById("ven-rating").value = v.rating;
+      document.getElementById("ven-notes").value = v.notes || "";
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+
+    function resetVendorForm() {
+      document.getElementById("vendor-form").reset();
+      document.getElementById("ven-id").value = "";
+      document.getElementById("ven-form-title").textContent = "新增協力廠商資料";
+    }
+
+    async function deleteVendor(id) {
+      if (!confirm("確定刪除此協力廠商？")) return;
+      await fetch(`/api/vendors/${id}`, { method: "DELETE" });
+      await Promise.all([loadVendors(), loadMaterials()]);
+    }
+
+    // 零用金載入與提交
+    async function loadPettyCash() {
+      const res = await fetch("/api/petty_cash");
+      const data = await res.json();
+      const total = data.reduce((sum, x) => sum + Number(x.amount), 0);
+      document.getElementById("petty-total").textContent = `累計：NT$ ${total.toLocaleString()}`;
+      document.getElementById("petty-tbody").innerHTML = data.map(p => `
+        <tr class="hover:bg-slate-50">
+          <td class="p-2 font-mono">${p.expense_date}</td>
+          <td class="p-2"><b>${p.category}</b><br>${p.item_name}</td>
+          <td class="p-2 font-bold text-slate-800">$${Number(p.amount).toLocaleString()}</td>
+          <td class="p-2">${p.handler}</td>
+          <td class="p-2 text-right"><button onclick="deletePetty(${p.id})" class="text-red-600 hover:underline">刪除</button></td>
+        </tr>
+      `).join("");
+    }
+
+    document.getElementById("petty-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      await fetch("/api/petty_cash", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          expense_date: document.getElementById("petty-date").value,
+          category: document.getElementById("petty-cat").value,
+          item_name: document.getElementById("petty-item").value,
+          amount: document.getElementById("petty-amount").value,
+          handler: document.getElementById("petty-handler").value,
+          receipt_no: document.getElementById("petty-receipt").value
+        })
+      });
+      e.target.reset();
+      document.getElementById("petty-date").value = today;
+      loadPettyCash();
+    });
+
+    async function deletePetty(id) {
+      await fetch(`/api/petty_cash/${id}`, { method: "DELETE" });
+      loadPettyCash();
+    }
+
+    // 機具租借載入與提交
+    async function loadEquipment() {
+      const res = await fetch("/api/equipment");
+      const data = await res.json();
+      document.getElementById("equip-tbody").innerHTML = data.map(e => `
+        <tr class="hover:bg-slate-50">
+          <td class="p-2"><b>${e.equipment_name}</b><br><span class="text-slate-400">${e.serial_no || "-"}</span></td>
+          <td class="p-2">${e.borrower}</td>
+          <td class="p-2 font-mono">${e.borrow_date}</td>
+          <td class="p-2">
+            <span class="px-2 py-0.5 rounded font-semibold ${e.status === '借出中' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}">${e.status}</span>
+          </td>
+          <td class="p-2 text-right space-x-1 whitespace-nowrap">
+            ${e.status === "借出中" ? `<button onclick="returnEquip(${e.id})" class="text-emerald-600 font-semibold hover:underline">歸還</button>` : ""}
+            <button onclick="deleteEquip(${e.id})" class="text-red-600 hover:underline">刪除</button>
+          </td>
+        </tr>
+      `).join("");
+    }
+
+    document.getElementById("equip-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      await fetch("/api/equipment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          equipment_name: document.getElementById("eq-name").value,
+          serial_no: document.getElementById("eq-serial").value,
+          borrower: document.getElementById("eq-borrower").value,
+          borrow_date: document.getElementById("eq-date").value,
+          expected_return: document.getElementById("eq-expected").value,
+          status: "借出中"
+        })
+      });
+      e.target.reset();
+      document.getElementById("eq-date").value = today;
+      loadEquipment();
+    });
+
+    async function returnEquip(id) {
+      await fetch(`/api/equipment/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "已歸還", actual_return: today })
+      });
+      loadEquipment();
+    }
+
+    async function deleteEquip(id) {
+      await fetch(`/api/equipment/${id}`, { method: "DELETE" });
+      loadEquipment();
+    }
+
+    // 初始載入
+    (async () => {
+      await loadVendors();
+      await Promise.all([loadInventory(), loadMaterials(), loadPettyCash(), loadEquipment()]);
+    })();
+  </script>
+</body>
+</html>
